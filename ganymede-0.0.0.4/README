@@ -1,0 +1,7 @@
+Ganymede is an Io interpreter, originally based on Martin
+"vague" Sandin's Amalthea, which is an Io interpreter
+written in OCaml. There are some differences since Amalthea
+is based on the description of Io found in Raphael Finkel's
+1996 book  "Advanced Programming Language Design" (APLD),
+whereas Ganymede is more faithful to Raph Levien's original
+1989 paper.

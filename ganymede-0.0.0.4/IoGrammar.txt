@@ -1,0 +1,59 @@
+Freehand Io Grammar Analysis
+
+[[ non-canonical...
+ioModule = <imports> >>= <exports> >>= <defs> >>= <expr>
+-- ioASTModule = liftM4 (,,,,) imnports exports defs expr
+  
+imports:
+  ("import" <moduleName> <idList> ".")*
+  -- imports = many (reserv'd "import" >> moduleName >>= impList >>= period >> return (mName, idList)
+
+impList:
+  optionMaybe (fColon >> idList)
+  
+exports:
+  ("export" <idList>* ".")?
+  -- exports = optional (between (reserv'd "export") period idList)
+]]
+
+defs:
+  (<ident> ": " <expr> ".")*
+
+atom:
+  numbers
+  "'strings'"
+  ('action')
+
+ident:
+  <non-whitespace>*
+
+lastAction:
+   "; " <expr>
+
+lambAction:   
+   -> <ident>* <lastAction>
+   
+appAction:   
+   <ident> <atom>* <lastAction>
+   
+parList:
+  -> <ident>* <lastAction> -- action (input) abstraction
+  <ident> <parList> <lastAction> -- action application
+  <pAtom>  <parList>? 
+
+pAtom:
+  <ident-already defined>
+
+expr:
+  <ident>
+  -> <ident>* <lastAction> -- action (input) abstraction
+  <ident> <parList> " <lastAction> -- action application
+
+import:
+  ("import" <ident>*.)*
+
+export:
+  ("export" <ident>*.)*
+
+reserved:: chan par write terminate
+  

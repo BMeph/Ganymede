@@ -1,0 +1,28 @@
+Helpful Hints on using Ganymede
+
+1 Intro
+   Ganymede is a Haskell translation based on an OCaml implementaion
+   of an interpreter of a programming notation first published in
+   December 1989, in the ACM Programming Languages and Notations
+   Special Interest Group (SIGPLAN) Notices publication. The Io
+   notation was a thought experiment to see how far one could use a
+   single, simple control mechanism. Io uses continuation passsing
+   for all control and data structuring. The Io notation was used as
+   an example in a 1995 book on program language design, and the
+   examples of Io from this book was the inspiration for Martin
+   "vague" Sandin to write his interpreter in 2002. Finally, at the
+   tail end of 2010, I (Walt "BMeph" Rorie-Baety) found vague's last
+   version of his Amalthea interpreter (0.875) and decided to try
+   writing the interpreter in Haskell. As a fun aside, vague mentions
+   in his documentation that he had first tried writing Amalthea in
+   Haskell, but switched to OCaml, which he was learning to program
+   in at the time.
+   
+2 Usage style   
+   To use, type "ganymede", include options, and a file containing
+   Io code. The optiions may follow or precede the source code file
+   name.
+
+
+
+

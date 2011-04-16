@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable #-}
 {------------------------------------------------------------
 (************************************************************ 
  Ganymede: the main Io interpreter module
@@ -17,25 +16,27 @@ import Io.Modules as Module (catch_module_errors, loadAST, load_world_of_ast)
 import Io.Interpreter as Interp (catch_interpreter_errors, interpret_expr_in_env)
 import Io.Pretty as Pretty (prettyPrint)
 import Io.Types
-import Io.Util (ganyOptErr, ganyRunErr)
+import Io.Util (freshPos, ref)
 
-import Prelude hiding (catch, error)
-import Control.Exception (Exception(..), Handler(..), catches)
-import Data.Data (Data)
+import Prelude hiding (catch)
+import Control.Exception (Handler(..), catch, catches, throw)
+import Control.Monad (when)
 import Data.List (foldl')
 import Data.Maybe (fromMaybe, fromJust, listToMaybe)
-import Data.Typeable (Typeable)
 import System.Console.GetOpt
 import System.Environment (getArgs)
-import System.Exit (exitSuccess)
+import System.Exit (ExitCode(ExitSuccess), exitSuccess)
+import System.FilePath (FilePath)
 import System.IO (hFlush, stdout)
-import System.IO.Error (annotateIOError)
+import System.IO.Error as Error (annotateIOError)
 
-ganyOpts :: Options
-getOpts :: [String] -> IO (Options, [String])
-speclist :: [OptDescr (Options -> IO Options)]
-usage_msg :: String
-version :: String
+-- Informative program values:
+version = "0.0.0.2"
+
+usage_msg =
+  "Usage: ganymede [options] <sourcefile>\n\
+  \Runs the Io source file.\n\
+  \Options are:"
 
 data Options = Options 
   { inputOpt   :: Maybe FilePath
@@ -45,14 +46,7 @@ data Options = Options
   , traceOpt   :: Bool
   , pLoadOpt   :: IoImports
   , varSuptOpt :: Bool
-  } deriving (Show, Data, Typeable)
--- Informative program values:
-version = "0.0.0.3"
-
-usage_msg =
-  "Usage: ganymede [options] <sourcefile>\n\
-  \Runs the Io source file.\n\
-  \Options are:"
+  } deriving (Show)
 
 ganyOpts = Options
   { inputOpt   = Nothing
@@ -65,6 +59,7 @@ ganyOpts = Options
   }
 
 -- (* Argument handling *)
+speclist :: [OptDescr (Options -> IO Options)]
 speclist =
   [ Option ['h','?']     ["help"]
       (NoArg (\_ -> putStrLn (usageInfo usage_msg speclist)
@@ -73,40 +68,47 @@ speclist =
   , Option ['d','t']     ["debug","trace"]
       (NoArg (\ opts -> return$ opts { traceOpt = True }))
       " print execution trace"
-  , Option ['V'    ]     ["version"]
+  , Option ['V'] ["version"]
       (NoArg (\_ -> putStrLn ("Ganymede, version "++ version)
                        >> exitSuccess))
       " print the Ganymede version number"
-  , Option ['c'   ]     ["clean","noprelude"]
+  , Option ['c']     ["clean","noprelude"]
       (NoArg (\opts -> return$ opts { pLoadOpt = [] }))
       " prevent the prelude from being loaded"
-  , Option ['P'   ]     ["Prelude"]
-      (OptArg ((\f opts -> return$ opts { pLoadOpt = [(f, Nothing)] }) .
-                             fromMaybe "prelude")
-                "FILE")
+  , Option ['P']     ["Prelude"]
+      (OptArg ((\f opts -> return$ opts { pLoadOpt = [(f, Nothing)] }) . fromMaybe "prelude") "FILE")
       " load FILE as prelude"
-  , Option ['p'   ]     ["pretty"]
+  , Option ['p']     ["pretty"]
       (NoArg (\opts -> return$ opts { ppOpt = True }))
       " pretty-print the source file"
-  , Option ['m'   ]     ["mutable","vars"]
+  , Option ['m']     ["mutable","vars"]
       (NoArg (\ opts -> return$ opts { varSuptOpt = True }))
       " enable mutable module variables (unpure)"
   ]
+{-   [Option ['c'] ["noprelude"], Arg.Unit (fun _ -> Io_module.default_imports := []), " prevent the prelude from being loaded",
+   Option ['r'] ["prelude"], Arg.String (fun n -> Io_module.default_imports := [(n,None)]), " load module <name> as prelude",
+   Option ['p'] ["pretty"], Arg.Set pretty_flag, " pretty print the source file",
+   Option ['d'] ["trace"], Arg.Set Io_interpreter.trace_flag",
+   Option ['m'] ["vars"], Arg.Set Io_env.variable_flag, " enable mutable module variables (unpure)",
+   Option ['V','?'] ["version"], Arg.Set version_flag, " print the Ganymede version number"]
+ -}
 
-getOpts args = let gErr = ganyOptErr usage_msg speclist in
+ganyRunErr :: String -> IO a
+ganyRunErr errs = ioError (userError (errs ++ usageInfo usage_msg speclist))
+
+getOpts :: [String] -> IO (Options, [String])
+getOpts args =
   case getOpt Permute speclist args of
     (o,n, [] ) -> do {
       opts <- foldl' (>>=) (return ganyOpts) $
-                (\opts -> return$ opts { inputOpt = listToMaybe n }) : o;
+                     (\opts -> return$ opts { inputOpt = listToMaybe n }) : o;
       if null n
-        then gErr "missing argument <sourcefile>\n"
+        then ganyRunErr "missing argument <sourcefile>\n"
         else return (opts, drop 1 n) }
-    (_,_,errs) -> gErr (concat errs)
+    (_,_,errs) -> ganyRunErr (concat errs)
 
 {- --Loads dependent modules and interprets the program -}
 build_n_run :: (String, IoAST) -> (Bool, Bool) -> IO ()
--- ^ The (String, IoAST) pair denotes the filename, and its associates Io AST;
---  the pair of Bools denote mutables and program tracing, respectively.
 build_n_run p@(_, (_, _, _, ex)) (varStatus, traceStatus) = do {
   (_,env,_) <- Module.catch_module_errors -- Modules
         (Module.load_world_of_ast traceStatus) p ;
@@ -114,24 +116,19 @@ build_n_run p@(_, (_, _, _, ex)) (varStatus, traceStatus) = do {
         Interp.interpret_expr_in_env (env, ex, (varStatus, traceStatus)) }
 {--}
 
-main :: IO ()
 main = do
-  
   (opts,_) <- getOpts =<< getArgs
---  print opts
   let filename = fromJust (inputOpt opts)
-  ast <- Module.catch_module_errors  Module.loadAST  filename
+  ast <- Module.catch_module_errors Module.loadAST filename
   if ppOpt opts
-    then putStrLn (Pretty.prettyPrint ast "\n")
+    then putStrLn $ Pretty.prettyPrint ast "\n"
     else (do
       build_n_run (filename, ast) (varSuptOpt opts, traceOpt opts)
       hFlush stdout
-     `catches` [ Handler (\(IoError err) -> ioError (userError err))
+    `catches` [ Handler (\(IoError error) -> ioError (userError error))
  -- if all else fails...
-               , Handler  ganyRunErr
-               ]) -- where
--- ganyRunErr e = ioError (annotateIOError e "Ganymede: " Nothing Nothing)
-      
+    , Handler 
+      (\e -> ioError (Error.annotateIOError e "Ganymede: " Nothing Nothing))])
 {-
 (************************************************************ 
  Amalthea main                                                

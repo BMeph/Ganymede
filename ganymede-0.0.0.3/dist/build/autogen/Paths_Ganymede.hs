@@ -11,23 +11,23 @@ import Data.Version (Version(..))
 import System.Environment (getEnv)
 
 version :: Version
-version = Version {versionBranch = [0,0,0,1], versionTags = []}
+version = Version {versionBranch = [0,0,0,3], versionTags = []}
 
 prefix, bindirrel :: FilePath
-prefix        = "C:\\Users\\BMeph\\AppData\\Roaming\\cabal"
+prefix        = "C:\\Documents and Settings\\wrorie-baety\\Application Data\\cabal"
 bindirrel     = "bin"
 
 getBinDir :: IO FilePath
 getBinDir = getPrefixDirRel bindirrel
 
 getLibDir :: IO FilePath
-getLibDir = getPrefixDirRel "Ganymede-0.0.0.1\\ghc-6.12.3"
+getLibDir = getPrefixDirRel "Ganymede-0.0.0.3\\ghc-7.0.2"
 
 getDataDir :: IO FilePath
-getDataDir =  catch (getEnv "Ganymede_datadir") (\_ -> getPrefixDirRel "Ganymede-0.0.0.1")
+getDataDir =  catch (getEnv "Ganymede_datadir") (\_ -> getPrefixDirRel "Ganymede-0.0.0.3")
 
 getLibexecDir :: IO FilePath
-getLibexecDir = getPrefixDirRel "Ganymede-0.0.0.1"
+getLibexecDir = getPrefixDirRel "Ganymede-0.0.0.3"
 
 getDataFileName :: FilePath -> IO FilePath
 getDataFileName name = do

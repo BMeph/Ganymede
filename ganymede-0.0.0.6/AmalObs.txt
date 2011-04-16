@@ -1,0 +1,54 @@
+Observations on Amalthea:
+  (Notes on Martin Sandin's Io interpreter, his OCaml style, and on OCaml itself.)
+
+I'm "iffy" on OCaml after this. On the one hand, it seems quite able for writing good programs,
+ it has an easy way to use C object files, you can use OO programming when you need to, and pro-
+ cedural programming when you need it. Perhaps that's part of the problem; if you can program
+ the same old way that you've always done, then where's the incentive to learn how to program
+ in ways that can do things you can't do normally? Not that Haskell-like "Edelheit Über Alles"
+ (Purity Over All) is the answer, but...if your types can warn you ahead of time that you're
+ accessing varying parts of the system, it is helpful to know about it beforehand.
+Some of the choices of style seem quirks of Sandin's and others seem quirks of the language.
+ The end result gives a feeling of not-so-fun quirkiness. I cannot tell if the way the
+ interpreter is structured was due to some unmentioned, impending requirement, raw "do what
+ works" thought processes, the influence of Sandin's OCaml teaching style, encouraged language
+ style conventions, or what, but there are many areas where the design feels uncomfortably
+ lacking in "separation of concern"-awareness or care. Maybe a rewrite was coming; the version
+ number is pre-1.0, after all. It just feels as if some things were done in an overly-compli-
+ cated way. I'm (2/10/11) still translating, so it'll have to wait until at least the first
+ rewrite on my part before a truer perspective can be gained. Part of the problem may be that
+ the five-to-ten years between when Amalthea was written and when "Project Ganymede" started
+ was a significant time of development, not just in Haskell, but in program design, especially
+ functional design.
+Much of the issues gained here seem to be from ML's, especially OCaml's, half-hearted devotion to
+ design issues. Many (OCaml) language libraries (e.g., Arg, Parser, Lexer) seem to have a polished
+ API, while others (List, I'm looking at you) feel half-way done. Perhaps they just suffer in
+ comparison with Haskell's outstanding efforts over the intervening decade.
+
+Discrepancies between Ganymede and Amalthea behavior:
+  1) Ganymede uses Haskell's GetOpt module, so when it prints an error, it has an odd-looking
+    paren on the last output line; Amalthea's error report isn't chopped up that way.
+  2) When multiple "pre-processing" options are passes to Amalthea, it only does one, "chosen" by
+    the order the argument clauses are written; Ganymede is written to do them all, if possible.
+  3) Amalthea's pretty print facility adds an "import prelude." to the program, whether it needs
+    one or not. Ganymede checks the program to see if it has a prelude statement.
+  4) In the spirit of "a motion to adjourn is always in order", Ganymede will never throw an
+    error when given a 'terminate' action; Amalthea checks the stack to be sure it's empty.
+  5) When run, Amalthea's usage blurb is output on stderr; also, when given no quick-exit options
+    or an input filename, the error message (of no sourcename) is output on stdout. Ganymede
+    does not copy that behavior, but outputs the error messages on stderr, and information
+    on stdout.
+  6) In the documentation, Martin Sandin remarks that the reason for including mutable variables
+    is "to support implementations of microthreads, coroutines, exceptions, and similar control
+    structures" - except that Raph Levien's paper also supported threads, coroutines and thread
+    messaging without exposing mutable variables to the notation syntax. Plus, they complicate
+    the interpreter, and reasoning about it.
+  7) Typical to OCaml, in fact to most of the programming industry, Amalthea uses separate
+    scanner/lexer and parser constructs. Haskell can (Alex/Happy) do so, but (Parsec) the more
+    idiomatic approach is to parse the input directly.
+  8) Similar to point 7, in OCaml, as I understand it, the parser holds a declarative description
+    of the parsing engine (on the tokens), while the Lexing module and the lexer itself deals with
+    the input stream, the file cursor (the 'pos' type) and tokenization. Parsec does it all in one
+    idiomatic package.
+
+

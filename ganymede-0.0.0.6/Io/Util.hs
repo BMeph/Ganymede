@@ -1,4 +1,4 @@
-{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE NoMonomorphismRestriction, ViewPatterns #-}
 {------------------------------------------------------------
  module Io.FileUtil utility module
    Based on:
@@ -104,18 +104,42 @@ ifte p t f = bool f t p
 showBracket :: ShowS -> ShowS
 showBracket p = showChar '[' . p . showChar ']'
 
-interC' xs  = uncurry ((. flip foldr [] (((xs ++) .) . (++))) . (++) . concat) . splitAt 1
--- ^ I.e., interC' xs xss = let ~(xsHead, xsTail) = splitAt 1 xss in
---  concat xsHead ++
---    foldr (\xssElem xssRest -> xs ++ xssElem ++ xssRest) [] xsTail
+interC' :: [a] -> [[a]] -> [a]
+interC' _     []   = []
+interC' _    [ys]  = ys
+interC' xs (ys:yss) = ys ++ foldr (((xs ++) .) . (++)) [] yss
+-- ^ I.e., interC' xs xss = let (xsHead, xsTail) = splitAt 1 xss
+--                               f x y = xs ++ (x ++ y)
+--                               xs' = concat xsHead in
+--  xs' ++ foldr f [] xsTail
+--  (Note the parens inside the function f above; the order is a concession to the
+--  cons-bias of the list. A truly associative implementation could use the simpler
+--  'xs ++ x ++ y' instead)
+-- ViewPatterns version:
+-- interC' xs (splitAt 1 -> (concat -> ys, yss)) =
+--         ys ++ foldr (\y ysRest -> xs ++ (y ++ ysRest)) [] yss
 
+-- ViewPatterns version for 'intersperse':
+-- intrSp' x (splitAt 1 -> (y, y')) =
+--         ys ++ foldr (\y ysRest -> xs ++ (y ++ ysRest)) [] yss
+
+-- ViewPatterns + CPS version:
+interCC :: [a] -> [[a]] -> [a] -> [a]
+interCC xs (splitAt 1 -> (concat -> ys, yss)) =
+         (ys ++) . foldr (\y ysRest -> (xs ++) . (y ++) . ysRest) id yss
+-- I.e., interCC xs   [  ]   zs = zs
+--       interCC xs   [ys]   zs = ys++zs
+--       interCC xs (ys:yss) zs = ys++xs++interCC xs yss zs (w/ yss /= [])
+
+         
 splitString :: Char -> String -> [String]
 splitString divider string =
-  case dropWhile (/= divider) string of
+  case dropWhile (== divider) string of
     "" -> []
     s' -> w : splitString divider (drop 1 s'')
           where (w, s'') =
-                 break (/= divider) s'
+                 break (== divider) s'
+
 
 uncIns :: (Ord a) => (a, b) -> M.Map a b -> M.Map a b
 first  :: (a -> b) -> (a, c) -> (b, c)

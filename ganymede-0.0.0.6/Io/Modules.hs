@@ -14,23 +14,18 @@ import Io.Messages as EMess (parser_error, lexer_error,
                              undefined_import_error)
 import Io.Parser (parseFromFile, parse_io_module)
 import Io.Types
-import Io.Util (find_file, ref, splitString, uncIns)
+import Io.Util (find_file, ref, splitString)
 
 import Prelude hiding (catch, lookup)
 import Control.Exception (catches, onException, throw, Handler(..))
 import Data.Char (toLower)
-import Data.List as L (find, foldl', lookup)
-import Data.Map as M (empty, insert, toList)
+import Data.List as L (deleteBy, find, foldl', lookup)
 import System.Environment (getEnv)
 import System.FilePath (dropFileName)
-
--- defaultImports :: IORef IoImports
-
 
 -- (* Returns the filename of a module import id *)
 idToFilename :: IoID -> FilePath
 idToFilename i = map toLower i ++ ".io"
-
 
 -- (* Returns the list of ids exported by a module *)
 exportedIDs :: IoAST -> [IoID]
@@ -38,16 +33,20 @@ exportedIDs (_,[], (ds, _),_) = map (\ (_,i,_) -> i) ds
 exportedIDs (_,es,_,_)  = es
   
   
-{- Loads an Io source file, parses and lexes it. -}
-loadAST :: FilePath -> IO IoAST
-loadAST file_path = do {
+{- Loads an Io source file name, parses and lexes it.
+   Why IO: it parses right from the file - file access
+ -}
+loadAST :: IoImports -> FilePath -> IO IoAST
+loadAST basePre file_path = do {
   anAST <- parseFromFile parse_io_module file_path;  -- Parser
-  
-  either (\_ -> throw IoASTError) return anAST
+  flip (either (\_ -> throw IoASTError)) anAST $
+     (\(is, es, ds, xs) -> return (basePre++is, es, ds, xs))
   }
 
 {- Finds the full module name, i.e. the path of the module source file,
-   from the module filename -}
+   from the module filename
+   Why IO: Multiple file access (if needed) by recursive descent.
+ -}
 find_module_name :: IoModuleName -> FilePath -> IO IoModuleName
 find_module_name into_name file_name =
   let dir_name = dropFileName into_name in
@@ -58,7 +57,9 @@ find_module_name into_name file_name =
     `onException` (throw (IoModuleNotFound into_name file_name))
 
 {- Loads module files recursively, and returns their interfaces. These can 
-     then be used for building the actual modules including the environments. -}
+     then be used for building the actual modules including the environments.
+   Why IO: Uses file_module_name and loadAST, above.
+ -}
 load_interfaces :: [IoModuleInterface] -> String -> IoAST -> IO [IoModuleInterface]
 load_interfaces interfaces imported_name importedAST@(imps, _, _, _) =
   let split_n_foldLM :: (Monad m) => (acc -> x -> m (acc, y)) -> acc -> [x] -> m (acc, [y])
@@ -74,15 +75,17 @@ load_interfaces interfaces imported_name importedAST@(imps, _, _, _) =
         name <- find_module_name importing_name (idToFilename imported_id);
         fmap (\x -> (x, (name, imps_by_imp))) $
           case L.lookup name iFaces of
-            Nothing -> loadAST name >>= (load_interfaces iFaces name)
+            Nothing -> loadAST imps name >>= (load_interfaces iFaces name)
             _       -> return iFaces }
 
       exps = exportedIDs importedAST
+      toss name list = xs++(drop 1 ys) where
+        (xs, ys) = break ((==name) . fst) list
       is = (imported_name, (exps, [], importedAST)):interfaces -- [IoModuleInterface]
   in do
     { (is', imps') <- split_n_foldLM (load_interfaces_ imported_name) is imps
-    ; return . M.toList . M.insert imported_name (exps, imps', importedAST) $
-             foldr uncIns M.empty is'
+    ; return ((imported_name, (exps, imps', importedAST)):
+              toss imported_name is')
     }
  
 {- Builds an environment for a module -}
@@ -92,7 +95,8 @@ build_env interfaces name = foldr Io.Env.fVBind en'
   Just (_,imps,(_, _, (ds, vds),_)) = L.lookup name interfaces
   en  = foldl' imp_assocs Io.Env.standard_environment imps
   en' = foldr (Io.Env.fBind .  (\ (_, i, ex) -> (i, CLocal ex))) en ds
-  imp_assocs env (imp_name, is) = foldr (\ i -> Io.Env.fBind (i, CExternal imp_name)) env imp_ids where
+  imp_assocs env (imp_name, is) =
+    foldr (\ i -> Io.Env.fBind (i, CExternal imp_name)) env imp_ids where
     Just (expIDs, _, _) = L.lookup imp_name interfaces
     imp_ids = case is of
                 Nothing  -> expIDs
@@ -101,20 +105,24 @@ build_env interfaces name = foldr Io.Env.fVBind en'
                     Just i -> throw (IoUndefinedImportError i imp_name)
 
 {- Builds a list of modules from a list of interfaces, creating environments
-   and linking the continuations between them. -}
+   and linking the continuations between them.
+   Why IO: Manipulates environment refs
+ -}
 build_modules :: Bool -> [IoModuleInterface] -> IO [IoModule]
 build_modules traceP interfaces = do
   { mapM_ (Io.Env.build_local_conts traceP) ens
-  ; mapM_ (Io.Env.link_external_conts enmp) ens
-  ; return . map to_mod $ zip interfaces ens
+  ; mapM_ (Io.Env.link_external_conts envMap) ens
+  ; return . map to_mod $ zip ens interfaces
   } where
-  to_mod = (\((name, spec), en) -> (name, (en, spec)))
-  names = map fst interfaces
-  ens = map (build_env interfaces) names
-  enmp = zip names ens
+  to_mod = (\(en, (name, spec)) -> (name, (en, spec)))
+  names  = map fst interfaces
+  ens    = map (build_env interfaces) names
+  envMap = zip names ens
 
 {- Uses an AST to construct a world in which continuations can be evaluated,
-   loading external modules in the process. -}
+   loading external modules in the process.
+   Why IO: uses load_interface and build_modules, above.
+ -}
 load_world_of_ast :: Bool -> (IoModuleName, IoAST) -> IO IoWorld
 load_world_of_ast traceP (name, ast) = do
   { is <- load_interfaces [] name ast
@@ -124,9 +132,9 @@ load_world_of_ast traceP (name, ast) = do
   }
 
 {- Catches and prints error messages from the module system -}
-catch_module_errors :: (a -> IO b) -> a -> IO b
-catch_module_errors f a =
-  catches (f a) $
+catch_module_errors :: (a -> b -> IO c) -> a -> b -> IO c
+catch_module_errors f a b =
+  catches (f a b) $
     [ Handler (\(IoParserError pos) ->
       throw (IoError (EMess.parser_error pos)))
     , Handler (\(IoLexerError pos) ->
